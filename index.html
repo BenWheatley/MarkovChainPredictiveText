@@ -1,0 +1,323 @@
+<html>
+	<head>
+		<title>MarkovChain</title>
+		<meta charset='utf-8' />
+		<style>
+			 .suggestion {
+				 width: 18%;
+				 border-radius: 0.5em;
+				 background: lightgray;
+				 border-color: gray;
+				 border-width: 1px;
+				 border-style: solid;
+				 display: inline-block;
+				 text-align: center;
+			 }
+		</style>
+	</head>
+	<script>
+		let pre_states = null;
+		/*
+			• a collection
+			• of states
+			• where each state is associated with a collection
+			• of [(probability), (next_state)] pairs
+			• where ∑(probability) = 1.0
+			
+			pre_states = {
+				'the': {
+					 'elephant': 0.6,
+					 'will': 0.2,
+					 'country': 0.1,
+					 'government': 0.1,
+				},
+				'elephant': {
+					…
+				}
+			}
+			
+			• State '' is the initial state.
+			• While calculating, "probabilities" are actually integers equalling observed frequency
+			• As a post-processing step, frequencies are normalised into probabilities such that ∑ = 1.0
+		*/
+		function rebuildModel() {
+			pre_states = {'':{}};
+			let input = document.getElementById("input").innerHTML;
+			let sentences = input.split(".");
+			sentences.forEach((sentence) => {
+				words = sentence.split(" ");
+				incrementModelWithNewStateForOldState(words[0], ''); // first word is special
+				for (let i = 1; i < words.length; i++) {
+					let oldWord = words[i-1];
+					let newWord = words[i];
+					incrementModelWithNewStateForOldState(newWord, oldWord);
+				}
+			});
+			postProcess();
+		}
+		
+		/**
+		 * Adds a state transition observation to the model.
+		 * For use before post-processing, as it increments the frequency and the post-processing step turns frequency into probability.
+		 */
+		function incrementModelWithNewStateForOldState(newState, oldState) {
+			if (!pre_states[oldState]) {
+				pre_states[oldState] = {};
+			}
+			if (!pre_states[oldState][newState]) {
+				pre_states[oldState][newState] = 0;
+			}
+			pre_states[oldState][newState] += 1;
+		}
+		
+		/**
+		 * Scales the state transition frequencies down into state transition probabilities 
+		 */
+		function postProcess() {
+			for (let oldStateKey in pre_states) {
+				if (pre_states.hasOwnProperty(oldStateKey)) {
+					let oldStateTransitionTable = pre_states[oldStateKey];
+					
+					let sumOfNewStateFrequencies = 0;
+					for (let newStateKey in oldStateTransitionTable) {
+						if (oldStateTransitionTable.hasOwnProperty(newStateKey)) {
+							var newStateFrequency = oldStateTransitionTable[newStateKey];
+							sumOfNewStateFrequencies += newStateFrequency;
+						}
+					}
+					for (let newStateKey in oldStateTransitionTable) {
+						if (oldStateTransitionTable.hasOwnProperty(newStateKey)) {
+							oldStateTransitionTable[newStateKey] /= sumOfNewStateFrequencies;
+						}
+					}
+					
+					pre_states[oldStateKey] = oldStateTransitionTable;
+					
+				}
+			}
+		}
+		
+		/**
+		 * Creates a random sentence from the Markov model. Regenerates the model if the model is null.
+		 */
+		function rebuildView() {
+			if (pre_states == null) {
+				rebuildModel();
+			}
+			let output = "";
+			let current_state = "";
+			while (true) {
+				const next_state = getNextStateForCurrentState(current_state);
+				if (next_state == undefined) {
+					break;
+				} else {
+					output = `${output} ${next_state}`;
+					if (output.length>10000) {
+						break;
+					}
+				}
+				current_state = next_state;
+			} 
+			document.getElementById("output").value = output + '.';
+		}
+		
+		/**
+		 * Returns a random next state given the current state 
+		 * 
+		 *	to choose a random transition (pseudocode):
+		 *		let r = rand(0, 1);
+		 *		let total = 0, current_index = 0;
+		 *		while (total<r) {
+		 *			total += pre_states[current_state][current_index];
+		 *			current_index++;
+		 *		}
+		 *		next_state = pre_states[current_state][current_index];
+		 */
+		function getNextStateForCurrentState(current_state) {
+			const transitionTable = pre_states[current_state]; 
+			if (transitionTable == undefined) {
+				return;
+			}
+			const r = Math.random();
+			let summedProbability = 0;
+			for (var potentialTransitionKey in transitionTable) {
+				if (transitionTable.hasOwnProperty(potentialTransitionKey)) {
+					var probability = transitionTable[potentialTransitionKey];
+					summedProbability += probability;
+					if (summedProbability>=r) {
+						return potentialTransitionKey;
+					}
+				}
+			}
+			console.assert(false, "should never be here");
+		}
+		
+		/** Fills autosuggest boxes with the most likely words. */
+		function suggestTop5NextWordPossibilites() {
+			if (pre_states==null) {
+				rebuildModel();
+			}
+			const allWords = document.getElementById("output").value.trim().split(" ");
+			const lastWord = allWords[allWords.length-1];
+			const transitionTable = pre_states[lastWord];
+			if (transitionTable) { // Not everything I can type will be in the list of known states
+				let transitionArray = Object.keys(transitionTable).map(key=>{
+					return [key, transitionTable[key]];
+				});
+				transitionArray.sort((first, second)=>{
+					return second[1] - first[1];
+				});
+				const topSuggestions = transitionArray.slice(0, 5);
+				
+				for (let i=0; i<topSuggestions.length || i<5; i++) {
+					let word = "";
+					if (i>=topSuggestions.length) {
+						word = ".";
+					} else {
+						const element = topSuggestions[i];
+						word = element[0];
+					}
+					const id = `s${i}`;
+					document.getElementById(id).innerHTML = word;
+				}
+			}
+		}
+		
+		/** Appends a specified word (any string) to the output text area, makes sure ares has focus afterwards. */
+		function appendWord(newWord) {
+			const previousText = document.getElementById("output").value;
+			document.getElementById("output").value = `${previousText} ${newWord}`;
+			suggestTop5NextWordPossibilites();
+			document.getElementById("output").focus();
+		}
+	</script>
+	<body>
+		<table style="width:100%; height:100%">
+			<thead>
+				<tr><th>Source text</th><th>Predictive text (<button onclick="rebuildView();" width="100px">Replace with random sentence</button>)</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td style="width:50%; height:100%;">
+						<textarea style="width:100%; height:100%;" id='input' onchange="rebuildModel();">
+	Stuart Blair Donaldson (West Aberdeenshire and Kincardine) (SNP)
+	
+	I beg to move,
+	
+	That this House has considered the effect of UK foreign policy on Libya.
+	
+	It is a pleasure to serve under your chairmanship, Mr Hanson.
+	
+	I start this debate by paying special tribute to Martin Kobler, special representative and head of the UN support mission in Libya, and to the British ambassador to Libya, who have both put an incredible amount of effort into bringing together competing institutions and encouraging them to form a single Government of national unity. However, the UK Government’s foreign policy legacy in Libya has been an unmitigated disaster. The lesson for the Government is that they reap what they sow. Today, Libya is in an extremely fragile state. The political and security crisis deepens, as two rival Governments—in Tripoli and Tobruk—compete for legitimacy. Meanwhile, countless rival militias and the spread of Daesh make for a troubled environment.
+	
+	According to UN estimates, the violence in Libya has affected some 2.5 million people and displaced more than 430,000 people. It has also disrupted access to hospitals, schools and basic services, such as power, water and sanitation. However, a UN humanitarian appeal to provide basic services—including medical care, education and the protection of refugees and migrants—to 1.3 million people in Libya has just 1% of the funds that it requires.
+	
+	In the absence of the rule of law and functioning institutions, refugees and asylum seekers are subjected to harassment, arbitrary detention, limited freedom of movement and other human rights violations. Libya continues to be the main transit and departure point for irregular sea migration to Europe from north Africa. In 2015, 151,000 arrivals to Italy were reported, with 90% of them departing from Libya. Meanwhile, the total number of detainees held by the department for combating illegal migration in Libya is between 2,500 and 4,000 people, including around 396 women and 52 children, who are held in eight detention centres.
+	
+	We in the Scottish National party fully support Amnesty International’s call for the world to help to pull Libya out of its human rights chaos, five years after the uprising there began. Speaking in January, Said Boumedouha, deputy middle east and north Africa director at Amnesty, could not have been clearer when he said:
+	
+	“World leaders, particularly those who took part in the NATO intervention that helped to overthrow Colonel Muammar al-Gaddafi in 2011, have a duty to ensure that those responsible for the horrors that have unfolded in Libya in its wake are held to account.”
+	
+	I want to raise the European Parliament’s recent resolution on Libya, as it reminds us of the increasing threat of security spill-over of the Libyan conflict not only in Egypt and particularly Tunisia, but in Algeria and its oilfields. The resolution emphasises the role of the Libyan conflict in exacerbating extremism in Tunisia.​
+	The growing presence of extremist organisations and movements in Libya is deeply worrying. The lesson of Libya, like the lesson of Iraq, is that countries cannot just bomb somewhere and move on. Thanks to the work of the Library staff and my honourable Friend for North East Fife (Stephen Gethins), we know that the UK Government spent 13 times more money on bombing Libya than on rebuilding it. Let us just consider those figures for a moment. The Library confirmed that £320 million was spent on military operations and bombing in Libya during NATO’s intervention in 2011. Meanwhile, separate UK Government figures show that a mere £25 million was spent on rebuilding infrastructure in the years following the war.
+	
+	The legacy of that policy in Libya has meant that today we have a vacuum that is being filled by rival militias and a country that is struggling to provide for its desperate population. US intelligence agencies tell us that the number of Daesh fighters in Syria and Iraq has dropped to about 25,000 from a high of about 31,500. However, the number of Daesh fighters in Libya has roughly doubled in the same period to about 6,500.
+	
+	The UK Government cannot shirk their responsibility to Libya. Leaving the country in a disastrous state after bombing it has undoubtedly created the conditions that Daesh needs to operate, as it terrorises local civilians and sets up home among the rubble of 2011. Indeed, the UK’s bombing of Syria—along with countless other military operations—is not defeating Daesh but merely displacing it across the wider region.
+	
+	The UK Government’s involvement in Libya has been so catastrophic that even the US President himself has criticised the UK’s Prime Minister. During an interview in March, the President was forthright in his assessment of the military intervention in Libya, criticising the Prime Minister for the UK’s role in allowing Libya to degrade to its current state; in fact, the President used more colourful language than that. The President also suggested that the Prime Minister had taken his eye off Libya after being
+	
+	“distracted by a range of other things”.
+	
+	The US President’s comments do not paint the picture of a UK Prime Minister who is either up to the job of leading our forces in strategic military interventions or capable of international co-operation in multi-faceted actions. The President went on to admit that Libya was the worst mistake of his presidency. The Prime Minister could do with reflecting on his own actions and admitting the catastrophic failures of his premiership regarding Libya.
+	
+	On 19 April, the Foreign Secretary, freshly returned from his visit to Tripoli, announced £10 million of funding to support the new Libyan Government of national accord. This money includes £1.5 million to tackle illegal migration, smuggling and organised crime, and £1.8 million to support counter-terrorism activities. The new cash follows an £11.5 million payment last year for development and humanitarian assistance.
+	
+	We in the SNP welcome that funding, but it is too little, too late. Despite urgent calls to provide humanitarian assistance to an estimated 2.4 million Libyans in need of aid, the Department for International Development has set aside just £50,000 in aid this financial year to prevent food and medicine shortages in the country.​
+	Understandably, that has led to much criticism. A UN official has described the UK’s humanitarian efforts as
+	
+	“paltry bone-throwing from a European country whose bombers reaped so much destruction”.
+	
+	The Government not only undertook military action with little in the way of long-term planning, but they have left the state and people of Libya paying a heavy price for that action. Humanitarian conditions in Libya have deteriorated since mid-2014, leaving an estimated 2.4 million people in need of humanitarian assistance, and some 1.28 million people across the country are at risk of food insecurity.
+	
+	It has been widely reported that the Government are now preparing to deploy British troops in Libya. The Foreign Affairs Committee wrote to the Foreign Secretary about the prospect of Britain deploying 1,000 ground troops in training and security roles for the new Government of national accord in Tripoli, but the response it received was less than clear. The Chair of the Committee, the honourable Member for Reigate (Crispin Blunt), accused the Foreign Secretary of
+	
+	“not dealing straightforwardly with Parliament”
+	
+	and went on to describe the
+	
+	“less-than-candid reply to my request for further detail on a rapidly developing situation that may require further active British engagement.”
+	
+	That is hardly a ringing endorsement for a Government who are already struggling with their poor legacy in Libya.
+	
+	Furthermore, a leaked memo from a confidential briefing to US members of Congress from King Abdullah of Jordan suggested that British SAS units are already operating in Libya. We urgently need honesty and transparency about the Government’s intentions in Libya. Our troops may soon be in Libya as part of training missions. How much of that training do the UK Government envisage taking place on Libyan soil? In 2013, the UK Government agreed to train up to 2,000 Libyan soldiers, who were part of the Libyan general purpose force, at Bassingbourn barracks near Cambridge. The first contingent arrived in 2014, but the programme was halted early after repeated allegations of disciplinary issues and of serious sexual assaults by Libyan personnel against civilians. The Government appear unclear whether they would again host Libyan training missions in the UK.
+	
+	Will the Government ensure that a vote and full debate take place in the main Chamber before any deployment of UK troops on Libyan soil? The Prime Minister must seek approval from Parliament before deploying any UK forces and provide full disclosure of the Government’s plans. Given that Libya is extremely fragile, with numerous militias and the growing presence of Daesh, how do the Government envisage a training mission in Libya taking place?
+	
+	We now know that NATO Secretary-General, Jens Stoltenberg, has ruled out any new combat operations, and that further highlights how unwise it would be for the UK to have any further military presence in Libya. The US President’s willingness even to partially admit he made a mistake is commendable, but only in that way will he and coalition partners learn from the errors of the past. It is time that the Prime Minister and his Government admitted their mistakes, and it is time that ​the Prime Minister was up front to Parliament about his Government’s plans in Libya. We need less military posturing and more long-term stability planning for Libya.
+	
+	I conclude by posing some questions to the Minister. Why have the Government promised only £50,000 to the UN Office for the Co-ordination of Humanitarian Affairs, for humanitarian efforts? It has been said that Libya is a rich country, but surely that makes reconstruction efforts all the more important, so that in the future we can access that wealth. Will the Government be hosting any more Libyan training missions on UK soil, or does the Minister envisage that the new training missions will be held on Libyan soil? Where do the Minister and the Government stand on the deployment of 1,000 British troops to Libya, and will the Minister ensure that a full debate and a vote take place in the House before the deployment of UK troops on Libyan soil?
+	
+	 11.11 am
+	
+	The Parliamentary Under-Secretary of State for Foreign and Commonwealth Affairs (Mr Tobias Ellwood)
+	
+	It is pleasure to work under your chairmanship, Mr Hanson. Given your interest in the matter, I know that you would probably want to participate in the debate, but we are pleased to have you in your seat.
+	
+	As is customary—but also because it is important to give recognition—I begin by congratulating the honourable Member for West Aberdeenshire and Kincardine (Stuart Blair Donaldson) on securing the debate. It is important that the House take a firm interest in the matter, not least for the reasons he has outlined. Events are changing on a regular basis, so I am pleased to have the opportunity to bring the House up to date with the events and with Britain’s involvement.
+	
+	The honourable Gentleman will understand that I completely disagree with his interpretation of recent—the past few years’—history. He glosses over many of the key elements that, sadly, allowed Libya to slip backwards after we had parliamentary and prime ministerial elections after Gaddafi was removed, but I will come to that in due course.
+	
+	We must recognise that Libya has gone through a testing period since 2011, but we must also place into context the backdrop against which events have taken place. Libya is a relatively new country. It has a huge amount of history, going back thousands and thousands of years. It is where the Berbers, the Phoenicians, the Greeks, the Romans and not least the Ottoman empire and the Italians were. We were there for a period as well. As a modern state, however, 1951 is when it gained its independence. Gaddafi took over after the coup and spent 40 years deterring societal development. Over the years, all the institutions had been able to learn, to adjust, to adapt and to further themselves, but that did not take place under Gaddafi. That is one of the reasons why, when the Arab spring came along, the people of Libya were asking for something very different. Once Gaddafi was removed, however, it was tough to suddenly create the institutions that were needed for the country to move forward. That was the challenge we faced in 2011.
+	
+	UN Security Council resolution 1973, which was adopted in March 2011 and allowed Operation Ellamy to take place, represented a legitimate cause to move in ​and support the people of Libya, because Gaddafi had made it clear that after Benghazi—the bloodbath he attempted to orchestrate there—he would have moved on to other cities where other Libyans were rising up and saying, “I’ve had enough of this dictator. I want something else”. It was right, therefore, that our Prime Minister and other leaders around the world stepped up to the plate and did the proper thing. We can look back on that and say that it absolutely was the right thing to do. As I mentioned, that led to the country holding parliamentary and prime ministerial elections, and creating its own leadership.
+	
+	If we were to look back at that period and ask, “Is there more the international community could have done?”, we would answer, “Yes there are lessons to be learnt, absolutely”, but the country itself, the leaders themselves, pushed back—shrugged off—international support. They wanted to do it themselves and that, I am afraid, led to inertia from the centralised perspective. Decisions were not being made. When there is a vacuum of power, and we have seen this across other parts of the Maghreb—the middle east and north Africa—extremism takes a foothold. We have seen it with Daesh in places such as Derna and Sirte.
+	
+	Last month’s visit by the Foreign Secretary, however, is an indication that we are moving into a new and cautiously optimistic chapter. The Foreign Secretary was able to meet Prime Minister Siraj in Tripoli itself. His first impressions were that the security the Prime Minister had around him meant that he was being accepted by the majority in both the House of Representatives and the State Council, and that this was allowing his own presidential council and the Government of national accord to take hold and start to re-establish the institutions that I spoke about earlier. It is important to place that into context, but the honourable Gentleman is correct that in the absence of strong central leadership extremism has taken a foothold. That has affected us here in Britain, because those who participated in organising and training the killers in Sousse in Tunisia were themselves trained in Libya. The matter is of concern to us because of that and because of the migration issues, which I shall on to in a second.
+	
+	Our Prime Minister very recently spoke with President Obama and other leaders about the concerns of the Libya challenge. There must be an international effort to ensure that we can support Prime Minister Siraj, and indeed Martin Kobler and the UN efforts there. The honourable Gentleman was right to praise the UN envoy. I speak to the envoy regularly, and I am pleased that our ambassador is able to provide support—the honourable Gentleman mentioned the funding we provide to his office. Nor should we overlook the Prime Minister’s envoy, Jonathan Powell, who has worked closely with Martin Kobler and his predecessor. Some £10 million has been allocated for technical support, and if there is a request for further funding we will of course consider it but I understand that such a request has not been forthcoming. The £10 million includes £1.8 million for counter-terrorism work, for exactly the reason I have mentioned, to prevent the vacuum from being taken over by extremism.
+	
+	Patrick Grady (Glasgow North) (SNP)
+	
+	I think that that is the same £10 million I asked the Foreign Secretary about—I asked whether it would be counted towards ​ODA. He said in the Chamber that he did not think it would, and then he had to write to me to clarify that it would. My question was actually whether it would be counted towards both ODA and the 2% NATO target. I do not know if the Minister has that knowledge to hand, but if he does not perhaps he will be able to clarify by correspondence.
+	
+	Mr Ellwood
+	
+	It can be the case that an allocation of funding qualifies for two budgets. There is nothing wrong with that, it is just the way it works. It can come from official development aid—as it is called—but also from the defence budget too. We should not assume that, because it is one allocation, oh my goodness, somehow we are double accounting. That is just the way the systems work.
+	
+	The reason why we must always confirm whether funding is ODA-able—as it is called—is because the rules were written in the 1950s, as the honourable Gentleman might be aware. They are, therefore, slightly out of date and need updating. The work of stabilisation is not really included in the definitions; it was “humanitarian work” when the rules were created by the OECD. We have been pushing for the rules to be updated, to recognise that the British taxpayer would like to see the money spent on exactly that. But if the rules do not allow for that, that is probably why the Foreign Secretary—indeed, anyone involved—needs to double-check whether the allocation can be confirmed. I hope that that answers the honourable Gentleman’s question.
+	
+	In addition, we also hosted a meeting of 47 countries last month in Tunisia. That goes back to the point I made earlier: it is important that the international community rallies together and recognises that, in Libya’s hour of need, we need to be ready to provide service and support to the new Prime Minister in a wide range of capacities. We co-hosted the meeting with the United Nations. It allowed all international communities to say what they can contribute, including the funding they can put forward and the packages they can offer to the Prime Minister. I make it clear that we have to be invited by the country to embark on any processes to improve, in the same way as happened back in 2012, when central Government’s wheels perhaps started to come off.
+	
+	The honourable Member for West Aberdeenshire and Kincardine criticised the fact that things went wrong after Gaddafi was removed. I agree that the international community should have pressed for more, but ultimately the Libyan people need to recognise the challenges they face, the support on offer from the international community and the consequences of failing to show the leadership what they want. Extremism gets a footing when there is an absence of leadership. The meeting in April provided ​exactly that leadership: it brought together the international community and allowed us to provide some scope as to how we would provide support and security.
+	
+	A lot of discussions will take place about the 1,000 or so troops. The Libyan international assistance mission is an Italian initiative in which Britain, Spain, Italy, France and other nations are likely to participate. There is planning for 1,000 troops or so, but we are yet to receive the invitation—the request—for any support. That support is likely to come, when it does, in the form of training and mentoring. Where that will take place is yet to be decided. It could very well be in Libya or somewhere else in the region, but it is unlikely to take place in Britain. It is training and mentoring; it is not an operational initiative, so there is no requirement for a vote in Parliament. Please do not expect one on the issue. That is the plan as we move forward, but I stress that we are yet to receive any request from the Prime Minister.
+	
+	As was implied by the honourable Member for West Aberdeenshire and Kincardine, the challenge we face is with migratory patterns. We are seeing criminal gangs orchestrate ruthlessly efficient programmes, selling tickets and encouraging individuals with the promise that they will get to Europe. Libya is seen as the weak link from which they can get across the Mediterranean. We all know that they do not get across the Mediterranean. The gangs place them in rickety boats that barely make it out of Libyan waters. Operation Sophia, which is the European Union’s initiative, currently operates in international waters. We want to move things forward so that it can operate in Libyan territorial waters, too. That will mean that the boats do not venture so far out that they cannot be returned to Libya. Those people can return back there, thereby breaking the chain from which the criminal gangs are benefiting.
+	
+	There is no doubt that the challenge of Libya will continue, or that Britain, working with our international partners, will ensure that we stand by the new Prime Minister, the new presidential council and the people of Libya. It has been a very difficult five years; everyone recognises that. It has been extremely challenging, but we must continue to work for peace and security in the country, not only because that is crucial for stability in the wider north African and Mediterranean regions, but because the United Kingdom has important interests, as I have outlined. After the revolution, the Libyan people expressed joy, enthusiasm and hope after 40 years of Gaddafi’s misrule, oppression and fear. They wanted freedom and democracy, and they held elections. The people of Libya want education and to continue to hear the inspiring stories of Libyans being able to succeed into the future. We want to stand by them, and we will continue to do so in the UK interest, ensuring that Libya emerges as a strong, peaceful and prosperous democracy. I pledge today our continuing support for the Prime Minister and the people of Libya.
+	
+	Question put and agreed to.
+						</textarea>
+					</td>
+					<td style="width:50%; height:100%">
+						<textarea style="width:100%; height:100%;" id='output' oninput="suggestTop5NextWordPossibilites();"></textarea>
+					</td>
+				</tr>
+			</tbody>
+			<tfoot>
+				<tr>
+					<td></td>
+					<td>
+						<div id="s0" class="suggestion" onclick="appendWord(this.innerText);">&nbsp;</div>
+						<div id="s1" class="suggestion" onclick="appendWord(this.innerText);">&nbsp;</div>
+						<div id="s2" class="suggestion" onclick="appendWord(this.innerText);">&nbsp;</div>
+						<div id="s3" class="suggestion" onclick="appendWord(this.innerText);">&nbsp;</div>
+						<div id="s4" class="suggestion" onclick="appendWord(this.innerText);">&nbsp;</div>
+					</td>
+				</tr>
+			</tfoot>
+		</table>
+	</body>
+</html>
