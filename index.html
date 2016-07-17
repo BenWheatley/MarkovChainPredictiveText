@@ -42,7 +42,7 @@
 		*/
 		function rebuildModel() {
 			pre_states = {'':{}};
-			let input = document.getElementById("input").innerHTML;
+			let input = document.getElementById("input").value;
 			let sentences = input.split(".");
 			sentences.forEach((sentence) => {
 				words = sentence.split(" ");
@@ -199,7 +199,7 @@
 			<tbody>
 				<tr>
 					<td style="width:50%; height:100%;">
-						<textarea style="width:100%; height:100%;" id='input' onchange="rebuildModel();">
+						<textarea style="width:100%; height:100%;" id='input' oninput="rebuildModel();">
 	Stuart Blair Donaldson (West Aberdeenshire and Kincardine) (SNP)
 	
 	I beg to move,
