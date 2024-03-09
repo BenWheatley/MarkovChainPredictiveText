@@ -5,5 +5,4 @@ Enter source text on the left, type as a user might on the right. Default sample
 
 Intended more as personal education than anything else, but feel free to use for whatever you feel like. I'm sure there are more efficient and flexible libraries dedicated to Markov Chains, but this might be useful for education.
 
-<!--Demo here: http://kitsunesoftware.com/MarkovChainPredictiveText/
--->
+Try it here: https://benwheatley.github.io/MarkovChainPredictiveText/
